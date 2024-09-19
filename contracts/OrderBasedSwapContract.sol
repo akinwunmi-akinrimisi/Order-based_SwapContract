@@ -152,4 +152,23 @@ contract TokenSwap {
 
         emit OrderFulfilled(orderId, msg.sender, order.depositToken, order.depositAmount, order.desiredToken, order.desiredAmount);
     }
+
+    function cancelOrder(uint256 orderId) external {
+        Order storage order = orders[orderId];
+
+        //Ensure the order is still open (not completed or fulfilled)
+        require(!order.isCompleted, "Order is already completed or cancelled");
+        require(block.timestamp > order.expirationTime, "Order has not expired yet");
+        
+        //Ensure the caller is the depositor who created the order
+        require(order.depositor == msg.sender, "Only the depositor can cancel this order");
+
+        //Transfer the deposited tokens back to the depositor
+        require(IERC20(order.depositToken).transfer(order.depositor, order.depositAmount), "Token transfer failed");
+
+        //Mark the order as completed (cancelled)
+        order.isCompleted = true;
+
+        emit OrderCancelled(orderId, order.depositor, order.depositToken, order.depositAmount);
+    }
 }

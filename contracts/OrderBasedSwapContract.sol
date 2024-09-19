@@ -95,6 +95,18 @@ contract TokenSwap {
     }
 
     function createOrder(address _depositToken, uint256 _depositAmount, address _desiredToken, uint256 _desiredAmount, uint256 _duration) public {
+        require(_depositToken != address(0), "Deposit token address cannot be zero");
+        require(_desiredToken != address(0), "Desired token address cannot be zero");
+        require(_depositAmount > 0, "Deposit amount must be greater than zero");
+        require(_desiredAmount > 0, "Desired amount must be greater than zero");
+        require(_depositToken != _desiredToken, "Deposit and desired tokens must be different");
+        
+        require(IERC20(_depositToken).balanceOf(msg.sender) >= _depositAmount, "insufficient baalnce");
+        require(IERC20(_depositToken).allowance(msg.sender, address(this)) >= _depositAmount, "Insufficient token allowance");
+
+
+        // Ensure the duration is greater than 0
+        require(_duration > 0, "Duration must be greater than zero");
 
         IERC20(_depositToken).transferFrom(msg.sender, address(this), _depositAmount);
 

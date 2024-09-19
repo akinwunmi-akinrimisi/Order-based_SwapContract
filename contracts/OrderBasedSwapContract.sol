@@ -54,4 +54,45 @@ contract TokenSwap {
     );
 
 
+    function getUSDCBalance(address user) public view returns (uint256) {
+        IERC20 usdcToken = IERC20(USDC);
+        return usdcToken.balanceOf(user);
+    }
+
+    function getDAIBalance(address user) public view returns (uint256) {
+        IERC20 daiToken = IERC20(DAI);
+        return daiToken.balanceOf(user);
+    }
+
+    function getUNICBalance(address user) public view returns (uint256) {
+        IERC20 usdcToken = IERC20(USDC);
+        return usdcToken.balanceOf(user);
+    }
+
+    function getLINKBalance(address user) public view returns (uint256) {
+        IERC20 daiToken = IERC20(DAI);
+        return daiToken.balanceOf(user);
+    }
+
+    function transferUSDC(address recipient, uint256 amount) public {
+        IERC20 usdcToken = IERC20(USDC);
+        usdcToken.transfer(recipient, amount);
+    }
+
+    function transferDAI(address recipient, uint256 amount) public {
+        IERC20 daiToken = IERC20(DAI);
+        daiToken.transfer(recipient, amount);
+    }
+
+    function transferLINK(address recipient, uint256 amount) public {
+        IERC20 usdcToken = IERC20(USDC);
+        usdcToken.transfer(recipient, amount);
+    }
+
+    function transferUNI(address recipient, uint256 amount) public {
+        IERC20 daiToken = IERC20(DAI);
+        daiToken.transfer(recipient, amount);
+    }
+
+
 }

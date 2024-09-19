@@ -25,6 +25,7 @@ contract TokenSwap {
 
     mapping(uint256 => Order) public orders;         // Mapping to store orders
     uint256 public orderCount;                      // Variable to track the total number of orders created
+    uint256 public orderCounter;                      // Variable to track the total number of orders created
 
     event OrderCreated(
     uint256 indexed orderId,
@@ -127,8 +128,6 @@ contract TokenSwap {
         emit OrderCreated(orderCount, msg.sender, _depositToken, _depositAmount, _desiredToken, _desiredAmount);
     }
 
-
-
     function fulfillOrder(uint256 orderId) external {
         Order storage order = orders[orderId];
 
@@ -198,6 +197,5 @@ contract TokenSwap {
         }
         return openOrders;
     }
-
 
 }

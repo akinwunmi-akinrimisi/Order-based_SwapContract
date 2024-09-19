@@ -94,5 +94,25 @@ contract TokenSwap {
         daiToken.transfer(recipient, amount);
     }
 
+    function createOrder(address _depositToken, uint256 _depositAmount, address _desiredToken, uint256 _desiredAmount, uint256 _duration) public {
+
+        IERC20(_depositToken).transferFrom(msg.sender, address(this), _depositAmount);
+
+        // Increment the order count to generate a new orderId
+        orderCount++;
+
+        // Store the new order in the mapping
+        orders[orderCount] = Order({
+            depositor: msg.sender,      
+            depositToken: _depositToken,   
+            depositAmount: _depositAmount,   
+            desiredToken: _desiredToken,    
+            desiredAmount: _desiredAmount,  
+            isCompleted: false,
+            expirationTime: block.timestamp + _duration   
+        });
+        
+        emit OrderCreated(orderCount, msg.sender, _depositToken, _depositAmount, _desiredToken, _desiredAmount);
+    }
 
 }

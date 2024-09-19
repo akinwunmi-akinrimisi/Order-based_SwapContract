@@ -53,7 +53,6 @@ contract TokenSwap {
         uint256 depositAmount
     );
 
-
     function getUSDCBalance(address user) public view returns (uint256) {
         IERC20 usdcToken = IERC20(USDC);
         return usdcToken.balanceOf(user);
@@ -94,6 +93,7 @@ contract TokenSwap {
         daiToken.transfer(recipient, amount);
     }
 
+
     function createOrder(address _depositToken, uint256 _depositAmount, address _desiredToken, uint256 _desiredAmount, uint256 _duration) public {
         require(_depositToken != address(0), "Deposit token address cannot be zero");
         require(_desiredToken != address(0), "Desired token address cannot be zero");
@@ -126,6 +126,8 @@ contract TokenSwap {
         
         emit OrderCreated(orderCount, msg.sender, _depositToken, _depositAmount, _desiredToken, _desiredAmount);
     }
+
+
 
     function fulfillOrder(uint256 orderId) external {
         Order storage order = orders[orderId];
@@ -171,4 +173,31 @@ contract TokenSwap {
 
         emit OrderCancelled(orderId, order.depositor, order.depositToken, order.depositAmount);
     }
+
+    // Function to get all open orders
+    function getOpenOrders() external view returns (Order[] memory) {
+        uint256 openOrderCount = 0;
+        
+        // checking for the number of open orders
+        for (uint256 i = 1; i <= orderCount; i++) {
+            if (!orders[i].isCompleted) {
+                openOrderCount++;
+            }
+        }
+        
+        // store open orders
+        Order[] memory openOrders = new Order[](openOrderCount);
+        uint256 index = 0;
+
+        // Loop through orders and populate the open orders array
+        for (uint256 i = 1; i <= orderCount; i++) {
+            if (!orders[i].isCompleted) {
+                openOrders[index] = orders[i];
+                index++;
+            }
+        }
+        return openOrders;
+    }
+
+
 }

@@ -127,4 +127,29 @@ contract TokenSwap {
         emit OrderCreated(orderCount, msg.sender, _depositToken, _depositAmount, _desiredToken, _desiredAmount);
     }
 
+    function fulfillOrder(uint256 orderId) external {
+        Order storage order = orders[orderId];
+
+        //Ensure the order is still open
+        require(!order.isCompleted, "Order is already completed");
+        require(block.timestamp <= order.expirationTime, "Order has expired");
+
+        //Ensure the buyer is providing the exact desired token amount
+        require(IERC20(order.desiredToken).allowance(msg.sender, address(this)) >= order.desiredAmount, "Insufficient token allowance for desired token");
+        require(IERC20(order.desiredToken).balanceOf(msg.sender) >= order.desiredAmount, "Insufficient token balance for desired token");
+
+        //Transfer the desired tokens from the buyer to the contract
+        require(IERC20(order.desiredToken).transferFrom(msg.sender, address(this), order.desiredAmount), "Token transfer (desired token) failed");
+
+        //Transfer the deposited tokens from the contract to the buyer
+        require(IERC20(order.depositToken).transfer(msg.sender, order.depositAmount), "Token transfer (deposit token) failed");
+
+        //Transfer the desired tokens from the contract to the depositor
+        require(IERC20(order.desiredToken).transfer(order.depositor, order.desiredAmount), "Token transfer to depositor failed");
+
+        //Mark the order as completed
+            order.isCompleted = true;
+
+        emit OrderFulfilled(orderId, msg.sender, order.depositToken, order.depositAmount, order.desiredToken, order.desiredAmount);
+    }
 }

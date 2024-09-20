@@ -17,8 +17,10 @@ describe("TokenSwap", function () {
     // Impersonate the token holder (single address holding all 4 tokens)
     const tokenHolder = "0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf";
 
+    const impersonatedSigner = await ethers.getImpersonatedSigner(tokenHolder);
 
-    const impersonatedSigner = await ethers.getImpersonatedSigner(tokenHolder)
+    // Fund the impersonated account with some ETH for gas fees
+    await setBalance(impersonatedSigner.address, ethers.parseEther("10")); // Send 10 ETH
 
     // Deploy the TokenSwap contract
     const TokenSwap = await hre.ethers.getContractFactory("TokenSwap");
@@ -57,12 +59,10 @@ describe("TokenSwap", function () {
       const uniAmount = hre.ethers.parseUnits("1000", 18);  // UNI has 18 decimals
       const linkAmount = hre.ethers.parseUnits("1000", 18); // LINK has 18 decimals
 
-      await setBalance(impersonatedSigner.address, ethers.parseEther("1000"))
-
       // Approve and check USDC
       await usdcContract.connect(impersonatedSigner).approve(tokenSwap, usdcAmount);
 
-      const allowedAmount = await usdcContract.allowance(impersonatedSigner, tokenSwap)
+      const allowedAmount = await usdcContract.allowance(impersonatedSigner, tokenSwap);
       expect(allowedAmount).to.equal(usdcAmount);
 
     //   Approve and check DAI
@@ -81,7 +81,7 @@ describe("TokenSwap", function () {
 
   describe("Create Order Function", function () {
     it("Should revert if _desiredAmount is 0", async function () {
-      const { tokenSwap, impersonatedSigner, tokenA } = await loadFixture(deployTokenSwapFixture);
+      const { tokenSwap, impersonatedSigner, tokenA, tokenB } = await loadFixture(deployTokenSwapFixture);
 
       // Get the USDC contract
       const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
@@ -92,8 +92,327 @@ describe("TokenSwap", function () {
 
       // Attempt to create an order with _desiredAmount = 0, expect revert
       await expect(
-        tokenSwap.connect(impersonatedSigner).createOrder(tokenA, usdcAmount, tokenA, 0)
+        tokenSwap.connect(impersonatedSigner).createOrder(tokenA, usdcAmount, tokenB, 0, 1000)
       ).to.be.revertedWith("Desired amount must be greater than zero");
     });
+
+    // Test 2: Check _depositAmount > 0
+    it("Should revert if _depositAmount is 0", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA, tokenB } = await loadFixture(deployTokenSwapFixture);
+
+      // Attempt to create an order with _depositAmount = 0, expect revert
+      await expect(
+        tokenSwap.connect(impersonatedSigner).createOrder(tokenA, 0, tokenB, 1000, 1000)
+      ).to.be.revertedWith("Deposit amount must be greater than zero");
+    });
+
+    // Test 3: Check _depositToken != ethers.ZeroAddress
+    it("Should revert if _depositToken is the zero address", async function () {
+      const { tokenSwap, impersonatedSigner, tokenB } = await loadFixture(deployTokenSwapFixture);
+
+      const usdcAmount = hre.ethers.parseUnits("1000", 6);  // USDC has 6 decimals
+
+      // Attempt to create an order with _depositToken as ethers.ZeroAddress, expect revert
+      await expect(
+        tokenSwap.connect(impersonatedSigner).createOrder(ethers.ZeroAddress, usdcAmount, tokenB, 1000, 1000)
+      ).to.be.revertedWith("Deposit token cannot be the zero address");
+    });
+
+    // Test 4: Check _desiredToken != ethers.ZeroAddress
+    it("Should revert if _desiredToken is the zero address", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA } = await loadFixture(deployTokenSwapFixture);
+
+      const usdcAmount = hre.ethers.parseUnits("1000", 6);  // USDC has 6 decimals
+
+      // Attempt to create an order with _desiredToken as ethers.ZeroAddress, expect revert
+      await expect(
+        tokenSwap.connect(impersonatedSigner).createOrder(tokenA, usdcAmount, ethers.ZeroAddress, 1000, 1000)
+      ).to.be.revertedWith("Desired token cannot be the zero address");
+    });
+
+    // Test 5: Check insufficient allowance for depositAmount
+    it("Should revert if allowance is less than _depositAmount", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA, tokenB } = await loadFixture(deployTokenSwapFixture);
+
+      // Get the USDC contract
+      const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+      const usdcAmount = hre.ethers.parseUnits("1000", 6);  // USDC has 6 decimals
+
+      // Approve only 500 USDC, less than the depositAmount of 1000
+      const insufficientApproval = hre.ethers.parseUnits("500", 6); // Only approve 500 USDC
+      await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), insufficientApproval);
+
+      // Attempt to create an order with _depositAmount = 1000, expect revert
+      await expect(
+        tokenSwap.connect(impersonatedSigner).createOrder(tokenA, usdcAmount, tokenB, 1000, 1000)
+      ).to.be.revertedWith("Insufficient token allowance");
+    });
+
+    // Test 6: Check _desiredToken != _desiredToken
+    it("Should revert if _desiredToken is the zero address", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA } = await loadFixture(deployTokenSwapFixture);
+
+      const usdcAmount = hre.ethers.parseUnits("1000", 6);  // USDC has 6 decimals
+
+      // Attempt to create an order where _depositToken is the same as _desiredToken, expect revert
+      await expect(
+        tokenSwap.connect(impersonatedSigner).createOrder(tokenA, usdcAmount, tokenA, 1000, 1000)
+      ).to.be.revertedWith("Deposit and desired tokens must be different");
+    });
+
+
+  // Test 7: Check if sender has sufficient balance for _depositAmount
+  it("Should revert if sender does not have sufficient balance of _depositToken", async function () {
+    const { tokenSwap, impersonatedSigner, tokenA, tokenB } = await loadFixture(deployTokenSwapFixture);
+
+    // Get the USDC contract
+    const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+    
+    // Log the current balance
+    const currentBalance = await usdcContract.balanceOf(impersonatedSigner.address);
+    // console.log("Current USDC balance:", currentBalance.toString());
+
+    // Set a very large deposit amount that the impersonated account doesn't have
+    const largeDepositAmount = hre.ethers.parseUnits("1000000000000", 6);  // e.g., 1 million USDC, exceeds balance
+    
+    // Approve the large amount to ensure the test doesn't fail on allowance
+    await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), largeDepositAmount);
+
+    // Attempt to create an order with a large _depositAmount, expect revert due to insufficient balance
+    await expect(
+      tokenSwap.connect(impersonatedSigner).createOrder(tokenA, largeDepositAmount, tokenB, 1000, 1000)
+    ).to.be.revertedWith("insufficient balance");
   });
-});
+
+
+  // Test 8: Check if allowance is sufficient for _depositAmount
+  it("Should revert if allowance is less than _depositAmount", async function () {
+    const { tokenSwap, impersonatedSigner, tokenA, tokenB } = await loadFixture(deployTokenSwapFixture);
+
+    // Get the USDC contract
+    const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+    
+    // Set a deposit amount
+    const depositAmount = hre.ethers.parseUnits("1000", 6);  // e.g., 1000 USDC
+
+    // Approve only 500 USDC, less than the depositAmount of 1000
+    const insufficientApproval = hre.ethers.parseUnits("500", 6); // Only approve 500 USDC
+    await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), insufficientApproval);
+
+    // Attempt to create an order with _depositAmount = 1000, expect revert due to insufficient allowance
+    await expect(
+      tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, 1000, 1000)
+    ).to.be.revertedWith("Insufficient token allowance");
+  });
+
+
+  // Test 9: Check if _duration is greater than zero
+  it("Should revert if _duration is 0", async function () {
+    const { tokenSwap, impersonatedSigner, tokenA, tokenB } = await loadFixture(deployTokenSwapFixture);
+
+    // Get the USDC contract
+    const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+    
+    // Set a deposit amount
+    const depositAmount = hre.ethers.parseUnits("1000", 6);  // e.g., 1000 USDC
+
+    // Approve the deposit amount
+    await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), depositAmount);
+
+    // Attempt to create an order with _duration = 0, expect revert due to invalid duration
+    await expect(
+      tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, 1000, 0)  // _duration set to 0
+    ).to.be.revertedWith("Duration must be greater than zero");
+  });
+
+  });
+
+  describe("Fulfill Order Function", function () {
+    it("Should revert if the order is already completed", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA, tokenB, owner } = await loadFixture(deployTokenSwapFixture);
+  
+      // Get the USDC and DAI contracts
+      const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+      const daiContract = await hre.ethers.getContractAt("IERC20", tokenB);
+  
+      const depositAmount = hre.ethers.parseUnits("1000", 6);  // 1000 USDC
+      const desiredAmount = hre.ethers.parseUnits("1000", 18);  // 1000 DAI
+  
+      // Approve the deposit amount (USDC) for the impersonated signer
+      await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), depositAmount);
+  
+      // Fund the owner with enough DAI for fulfilling the order
+      await daiContract.connect(impersonatedSigner).transfer(owner.address, desiredAmount);
+  
+      // Approve the desired amount (DAI) for the owner
+      await daiContract.connect(owner).approve(tokenSwap.getAddress(), desiredAmount);
+  
+      // Create an order
+      await tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, desiredAmount, 1000);
+  
+      // Assume the order ID is 1 (adjust according to your implementation)
+      const orderId = 1;
+  
+      // Fulfill the order successfully the first time
+      await tokenSwap.connect(owner).fulfillOrder(orderId);
+  
+      // Attempt to fulfill the same order again, expect revert due to it being already completed
+      await expect(
+        tokenSwap.connect(owner).fulfillOrder(orderId)
+      ).to.be.revertedWith("Order is already completed");
+    });
+
+
+    // Test 2: Check if the order has expired
+    it("Should revert if the order has expired", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA, tokenB, owner } = await loadFixture(deployTokenSwapFixture);
+
+    // Get the USDC and DAI contracts
+    const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+    const daiContract = await hre.ethers.getContractAt("IERC20", tokenB);
+
+    const depositAmount = hre.ethers.parseUnits("1000", 6);  // 1000 USDC
+    const desiredAmount = hre.ethers.parseUnits("1000", 18);  // 1000 DAI
+
+    // Approve the deposit amount (USDC) for the impersonated signer
+    await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), depositAmount);
+
+    // Fund the owner with enough DAI for fulfilling the order
+    await daiContract.connect(impersonatedSigner).transfer(owner.address, desiredAmount);
+
+    // Approve the desired amount (DAI) for the owner
+    await daiContract.connect(owner).approve(tokenSwap.getAddress(), desiredAmount);
+
+    // Create an order with a short duration (e.g., 1 second)
+    const shortDuration = 1; // 1 second duration
+    await tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, desiredAmount, shortDuration);
+
+    // Assume the order ID is 1 (adjust according to your implementation)
+    const orderId = 1;
+
+    // Wait for 2 seconds so the order expires
+    await hre.network.provider.send("evm_increaseTime", [2]); // Increase time by 2 seconds
+    await hre.network.provider.send("evm_mine"); // Mine a new block with the updated timestamp
+
+    // Attempt to fulfill the order after the expiration time, expect revert due to order expiration
+    await expect(
+      tokenSwap.connect(owner).fulfillOrder(orderId)
+    ).to.be.revertedWith("Order has expired");
+  });
+
+    // Test 3: Check if the allowance for the desired token is sufficient
+    it("Should revert if the allowance for the desired token is less than desiredAmount", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA, tokenB, owner } = await loadFixture(deployTokenSwapFixture);
+
+      // Get the USDC and DAI contracts
+      const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+      const daiContract = await hre.ethers.getContractAt("IERC20", tokenB);
+
+      const depositAmount = hre.ethers.parseUnits("1000", 6);  // 1000 USDC
+      const desiredAmount = hre.ethers.parseUnits("1000", 18);  // 1000 DAI
+
+      // Approve the deposit amount (USDC) for the impersonated signer
+      await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), depositAmount);
+
+      // Fund the owner with enough DAI for fulfilling the order
+      await daiContract.connect(impersonatedSigner).transfer(owner.address, desiredAmount);
+
+      // Approve only a partial amount of the desired token (e.g., 500 DAI)
+      const partialApproval = hre.ethers.parseUnits("500", 18);  // Only approve 500 DAI
+      await daiContract.connect(owner).approve(tokenSwap.getAddress(), partialApproval);
+
+      // Create an order with the full desiredAmount
+      await tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, desiredAmount, 1000);
+
+      // Assume the order ID is 1 (adjust according to your implementation)
+      const orderId = 1;
+
+      // Attempt to fulfill the order with insufficient allowance for the desired token (DAI)
+      await expect(
+        tokenSwap.connect(owner).fulfillOrder(orderId)
+      ).to.be.revertedWith("Insufficient token allowance for desired token");
+    });
+
+
+
+        // Test 4: Check if the balance of the desired token is sufficient
+    it("Should revert if the balance of the desired token is less than desiredAmount", async function () {
+      const { tokenSwap, impersonatedSigner, tokenA, tokenB, owner } = await loadFixture(deployTokenSwapFixture);
+
+      // Get the USDC and DAI contracts
+      const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+      const daiContract = await hre.ethers.getContractAt("IERC20", tokenB);
+
+      const depositAmount = hre.ethers.parseUnits("1000", 6);  // 1000 USDC
+      const desiredAmount = hre.ethers.parseUnits("1000", 18);  // 1000 DAI
+
+      // Approve the deposit amount (USDC) for the impersonated signer
+      await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), depositAmount);
+
+      // Approve the full amount of the desired token (DAI) for the owner
+      await daiContract.connect(owner).approve(tokenSwap.getAddress(), desiredAmount);
+
+      // Set owner's DAI balance to a value less than desiredAmount (e.g., 500 DAI)
+      const lowBalance = hre.ethers.parseUnits("500", 18);  // 500 DAI
+      await daiContract.connect(impersonatedSigner).transfer(owner.address, lowBalance);
+
+      // Create an order with the full desiredAmount (1000 DAI)
+      await tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, desiredAmount, 1000);
+
+      // Assume the order ID is 1 (adjust according to your implementation)
+      const orderId = 1;
+
+      // Attempt to fulfill the order with insufficient balance of the desired token (DAI)
+      await expect(
+        tokenSwap.connect(owner).fulfillOrder(orderId)
+      ).to.be.revertedWith("Insufficient token balance for desired token");
+    });
+    
+
+  // describe("Cancel Order Function", function () {
+  //   it("Should revert if the order is already completed or canceled", async function () {
+  //     const { tokenSwap, impersonatedSigner, tokenA, tokenB, owner } = await loadFixture(deployTokenSwapFixture);
+
+  //     const usdcContract = await hre.ethers.getContractAt("IERC20", tokenA);
+  //     const daiContract = await hre.ethers.getContractAt("IERC20", tokenB);
+
+  //     const depositAmount = hre.ethers.parseUnits("1000", 6);  // 1000 USDC
+  //     const desiredAmount = hre.ethers.parseUnits("1000", 18);  // 1000 DAI
+
+  //     // Approve the deposit amount (USDC) for the impersonated signer
+  //     await usdcContract.connect(impersonatedSigner).approve(tokenSwap.getAddress(), depositAmount);
+
+  //     // Fund the owner with enough DAI for fulfilling the order
+  //     await daiContract.connect(impersonatedSigner).transfer(owner.address, desiredAmount);
+
+  //     // Approve the desired amount (DAI) for the owner
+  //     await daiContract.connect(owner).approve(tokenSwap.getAddress(), desiredAmount);
+
+  //     // Create an order
+  //     await tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, desiredAmount, 1000);
+
+  //     const orderId = 1;
+
+  //     // Fulfill the order to mark it as completed
+  //     await tokenSwap.connect(owner).fulfillOrder(orderId);
+
+  //     // Attempt to cancel the order after it's completed, expect revert
+  //     await expect(
+  //       tokenSwap.connect(impersonatedSigner).cancelOrder(orderId)
+  //     ).to.be.revertedWith("Order is already completed or cancelled");
+
+  //     // Create a new order
+  //     await tokenSwap.connect(impersonatedSigner).createOrder(tokenA, depositAmount, tokenB, desiredAmount, 1000);
+
+  //     const newOrderId = 2;
+
+  //     // Cancel the new order
+  //     await tokenSwap.connect(impersonatedSigner).cancelOrder(newOrderId);
+
+  //     // Attempt to cancel the already canceled order, expect revert
+  //     await expect(
+  //       tokenSwap.connect(impersonatedSigner).cancelOrder(newOrderId)
+  //     ).to.be.revertedWith("Order is already completed or cancelled");
+  //   });
+  // });
+})});
